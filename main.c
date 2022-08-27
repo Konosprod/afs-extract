@@ -2,6 +2,8 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <errno.h>
 
 #define SIGN_L 0x41465300
 #define SIGN_B 0x00534641
@@ -56,11 +58,26 @@ void dump_file(FILE* in, Header* h)
 {
   char name[20] = {0};
   unsigned char c = 0;
+  const char* dirname = "DATA1";
+  int err = 0;
+
+  err = mkdir(dirname, S_IRWXU);
+
+  if (err != 0 && errno != EEXIST)
+  {
+    printf("Failed to create directory \"%s\": %s\n", dirname, strerror(errno));
+    exit(err);
+  }
 
   for(int i = 0; i < h->nbfile; i++)
   {
-    sprintf(name, "DATA1/%d", i);
+    sprintf(name, "%s/%d", dirname, i);
     FILE* out = fopen(name, "wb+");
+    if (out == NULL)
+    {
+      printf("Failed to create file \"%s\": %s\n", name, strerror(errno));
+      exit(errno);
+    }
     fseek(in, h->tok[i].offset, SEEK_SET);
     printf("Dumping %s...", name);
     fflush(stdout);
