@@ -3,21 +3,30 @@
 #include <stdint.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/param.h>
 #include <errno.h>
 
 #define SIGN_L 0x41465300
 #define SIGN_B 0x00534641
 
+#define CHUNK_SIZE 2048
+
+#define NAME_SIZE 20
+#define ATTR_SIZE 30
+
 typedef struct Token
 {
   uint32_t size;
   uint32_t offset;
+  char name[NAME_SIZE];
 }Token;
 
 typedef struct Header
 {
   uint32_t sign;
   uint32_t nbfile;
+  uint32_t attr_offset;
+  uint32_t attr_size;
   Token* tok;
 }Header;
 
@@ -52,12 +61,25 @@ void get_header(FILE* in, Header* h)
     //printf("File[%d] : size : 0x%.8X\toffset : 0x%.8X\n", i+1, h->tok[i].size, h->tok[i].offset);
   }
 
+  fread(&h->attr_offset, sizeof(uint32_t), 1, in);
+  fread(&h->attr_size, sizeof(uint32_t), 1, in);
+
+  printf("%#010x and %#010x\n", h->attr_offset, h->attr_size);
+
+  fseek(in, h->attr_offset, SEEK_SET);
+  for(int i = 0; i < h->nbfile; i++)
+  {
+    fread(&h->tok[i].name, sizeof(char), NAME_SIZE, in);
+    printf("name \"%s\"\n", h->tok[i].name);
+    // Skip other attributes (date)
+    fseek(in, 28, SEEK_CUR);
+  }
 }
 
 void dump_file(FILE* in, Header* h)
 {
   char name[20] = {0};
-  unsigned char c = 0;
+  unsigned char file_buffer[CHUNK_SIZE] = {0};
   const char* dirname = "DATA1";
   int err = 0;
 
@@ -71,7 +93,7 @@ void dump_file(FILE* in, Header* h)
 
   for(int i = 0; i < h->nbfile; i++)
   {
-    sprintf(name, "%s/%d", dirname, i);
+    sprintf(name, "%s/%s", dirname, h->tok[i].name);
     FILE* out = fopen(name, "wb+");
     if (out == NULL)
     {
@@ -81,10 +103,16 @@ void dump_file(FILE* in, Header* h)
     fseek(in, h->tok[i].offset, SEEK_SET);
     printf("Dumping %s...", name);
     fflush(stdout);
-    for(int j = 0; j < h->tok[i].size; j++)
+
+    int bytes_remaining = h->tok[i].size;
+    size_t bytes_read = 0;
+    size_t bytes_to_read = 0;
+    while(bytes_remaining > 0)
     {
-      fread(&c, sizeof(char), 1, in);
-      fwrite(&c, sizeof(char), 1, out);
+      bytes_to_read = MIN(CHUNK_SIZE, bytes_remaining);
+      bytes_read = fread(&file_buffer, sizeof(unsigned char), bytes_to_read, in);
+      fwrite(&file_buffer, sizeof(unsigned char), bytes_read, out);
+      bytes_remaining -= bytes_read;
     }
     printf("...done\n");
     fclose(out);
